@@ -14,8 +14,54 @@ struct Clock
     int nanoseconds;
 };
 
-int main()
+int main(int argc, char* argv[])
 {
+    int opt;
+    int numChildren = 0;
+    int numSim = 0;
+    int timeLim = 0;
+    int interval = 0;
+
+    while((opt = getopt(argc, argv, ":hn:s:t:i:")) != -1) //set optional args
+        {
+            switch(opt)
+            {
+                //help menu
+                case 'h':
+                    std::cout << "Help menu:\n" ;
+                    std::cout << "**********************\n" ;
+                    std::cout << "-h: display help menu\n" ;
+                    std::cout << "-n: set number of child processes\n" ;
+                    std::cout << "-s: set number of simultaneous children\n" ;
+                    std::cout << "-t: set iterations\n" ;
+                    std::cout << "-i: set interval in ms between launching children\n" ;
+                    std::cout << "**********************\n" ;
+                    std::cout << "Example invocation: \n" ;
+                    std::cout << "./oss -n 5 -s 3 -t 7 -i 100\n" ;
+                    std::cout << "Example will launch 5 child processes, with time limit between 1s and 7s,";
+                    std::cout << "\nwith a time delay between new children of 100 ms\n" ;
+                    std::cout << "\nand never allow more than 3 child processes to run simultaneously.\n" ;
+                    return 0;
+                case 'n':
+                    numChildren = atoi(optarg); //assign arg value to numChildren
+                    break;
+                case 's':
+                    numSim = atoi(optarg); //assign arg value to numSim
+                    break;
+                case 't': //assign arg value to iter
+                    timeLim = atoi(optarg);
+                    break;
+                case 'i':
+                    interval = atoi(optarg);
+                    break;
+                default:
+                    std::cerr << "Please choose an option!\n" ;
+                    std::cout << "Example invocation: \n" ;
+                    std::cout << "./oss -n 5 -s 3 -t 7 -i 100\n" ;
+                    return 1;
+            }
+        }
+
     //create shared mem key
     int shmid = shmget(IPC_PRIVATE, sizeof(int), 0644 | IPC_CREAT);
 
