@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <signal.h>
 
 struct Clock
 {
@@ -14,8 +15,39 @@ struct Clock
     int nanoseconds;
 };
 
+const int SH_KEY = 74821;
+
+void signal_handler(int sig)
+{
+    std::cerr << "Timeout... terminating..." << std::endl;
+    // code to send kill signal to all children based on their PIDs in process table
+
+    // code to free up shared memory
+    int shmid = shmget(SH_KEY, sizeof(Clock), 0);
+    if (shmid != -1)
+    {
+        shmctl(shmid, IPC_RMID, nullptr);
+    }
+    exit(1);
+}
+
+void increment_clock(Clock *shared_clock)
+{
+    shared_clock -> nanoseconds += 500000;
+    //increment seconds if nanoseconds = second
+    if (shared_clock -> nanoseconds >= 1000000000)
+    {
+        shared_clock -> nanoseconds -= 1000000000;
+        shared_clock -> seconds++;
+    }
+}
+
 int main(int argc, char* argv[])
 {
+    //set up alarm
+    signal(SIGALRM, signal_handler);
+    alarm(60);
+
     int opt;
     int numChildren = 0;
     int numSim = 0;
@@ -33,7 +65,7 @@ int main(int argc, char* argv[])
                     std::cout << "-h: display help menu\n" ;
                     std::cout << "-n: set number of child processes\n" ;
                     std::cout << "-s: set number of simultaneous children\n" ;
-                    std::cout << "-t: set iterations\n" ;
+                    std::cout << "-t: set time limit for children\n" ;
                     std::cout << "-i: set interval in ms between launching children\n" ;
                     std::cout << "**********************\n" ;
                     std::cout << "Example invocation: \n" ;
@@ -62,67 +94,57 @@ int main(int argc, char* argv[])
             }
         }
 
-    //create shared mem key
-    int shmid = shmget(IPC_PRIVATE, sizeof(int), 0644 | IPC_CREAT);
-
+    //create shared mem: 0644 r/w to owner
+    int shmid = shmget(SH_KEY, sizeof(Clock), 0644 | IPC_CREAT);
     if (shmid == -1)
     {
-        std::cerr << "Error: Shared memory get failed\n";
+        std::cerr << "Error: Shared memory get failed" << std::endl;
         return 1;
     }
 
     //attach shared mem
     Clock *shared_clock = static_cast<Clock*>(shmat(shmid, nullptr, 0));
-        if (shared_clock == (void*)-1)
-        {
-            std::cerr << "Error: shmat" << std::endl;
-            return 1;
-        }
+    if (shared_clock == (void*)-1)
+    {
+        std::cerr << "Error: shmat" << std::endl;
+        return 1;
+    }
 
     shared_clock->seconds = 0;
     shared_clock->nanoseconds = 0;
 
-    pid_t pid = fork();
+    int activeChildren = 0;
 
-    if (pid < 0)
+    for (int i = 0; i < numChildren; i++)
     {
-        std::cerr << "Error: fork issue.\n";
-        return 1;
-    }
-    else if (pid == 0)
-    {
-        //child process
-        int *child_clock = static_cast<int*>(shmat(shmid, nullptr, 0));
-        if (child_clock == (void*)-1)
+        if (activeChildren >= numSim)
         {
-            std::cerr << "Child: Error: shmat\n";
+            wait(nullptr);
+            activeChildren--;
+        }
+
+        pid_t pid = fork();
+
+        if (pid < 0)
+        {
+           std::cerr << "Error: fork issue." << std::endl;
+           return 1;
+        }
+        else if (pid == 0)
+        {
+            execl("./worker", "worker", std::to_string(timeLim).c_str(), std::to_string(timeLim).c_str(), nullptr);
+            std::cerr << "Error: execl failed" << std::endl;
             return 1;
         }
-        //simulate clock here
-        //detach from shared memory
-        if (shmdt(child_clock) == -1)
+        else
         {
-            std::cerr << "Child: error: shmdt" << std::endl;
-            return 1;
+            //parent process
+            activeChildren++;
         }
-    }
-    else
-    {
-        //parent process
-        wait(nullptr);
-        //detach from shared mem
-        if (shmdt(shared_clock) == -1)
-        {
-            std::cerr << "Parent: error: shmdt" << std::endl;
-            return 1;
-        }
-        //remove shared mem
-        if (shmctl(shmid, IPC_RMID, nullptr) == -1)
-        {
-            std::cerr << "Parent: error: shmctl" << std::endl;
-            return 1;
-        }
+        increment_clock(shared_clock);
     }
 
+    shmdt(shared_clock);
+    shmctl(shmid, IPC_RMID, nullptr);
     return 0;
 }
