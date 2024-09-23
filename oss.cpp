@@ -8,6 +8,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <signal.h>
+#include <iomanip>
 
 struct PCB
 {
@@ -51,6 +52,32 @@ void increment_clock(Clock *shared_clock)
         shared_clock -> nanoseconds -= 1000000000;
         shared_clock -> seconds++;
     }
+}
+
+void print_process_table(PCB pcb_table[], Clock* shared_clock)
+{
+    std::cout << "OSS PID: " << getpid() << std::endl;
+    std::cout << "SysClockS: " << shared_clock -> seconds << std::endl;
+    std::cout << "SysCLockNano: " << shared_clock -> nanoseconds << std::endl;
+    std::cout << "Process Table:" << std::endl;
+    std::cout << "----------------------------------------" << std::endl;
+    std::cout << std::setw(10) << "Entry" <<
+    std::setw(10) << "Occupied" <<
+    std::setw(10) << "PID" <<
+    std::setw(10) << "StartS" <<
+    std::setw(10) << "StartN" <<
+    std::endl;
+
+    for (int i = 0; i < MAX_PROCESSES; i++)
+    {
+        std::cout << std::setw(10) << i <<
+        std::setw(10) << pcb_table[i].occupied <<
+        std::setw(10) << pcb_table[i].pid <<
+        std::setw(10) << pcb_table[i].startSeconds <<
+        std::setw(10) << pcb_table[i].startNano <<
+        std::endl;
+    }
+    std::cout << "----------------------------------------" << std::endl;
 }
 
 int main(int argc, char* argv[])
