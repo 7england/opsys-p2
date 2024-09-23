@@ -33,6 +33,13 @@ void signal_handler(int sig)
 {
     std::cerr << "Timeout... terminating..." << std::endl;
     // code to send kill signal to all children based on their PIDs in process table
+    for (int i = 0; i < MAX_PROCESSES; i++)
+    {
+        if (pcb_table[i].occupied == 1)
+        {
+            kill(pcb_table[i].pid, SIGKILL);
+        }
+    }
 
     // code to free up shared memory
     int shmid = shmget(SH_KEY, sizeof(Clock), 0);
@@ -160,8 +167,10 @@ int main(int argc, char* argv[])
         increment_clock(shared_clock);
         if (shared_clock -> nanoseconds % 500000 == 0)
         {
-            //print_process_table(pcb_table, shared_clock); <- write function
+            print_process_table(pcb_table, shared_clock);
         }
+
+        //check for terminated processes
         int status;
         pid_t pid = waitpid(-1, &status, WNOHANG);
 
@@ -192,7 +201,7 @@ int main(int argc, char* argv[])
                         std::cerr << "Error: fork issue." << std::endl;
                         return 1;
                     }
-                    else if (new_pid ==0)
+                    else if (new_pid == 0)
                     {
                         //child process
                         execl("./worker", "worker", std::to_string(timeLimSec).c_str(), std::to_string(timeLimNano).c_str(), nullptr);
@@ -213,7 +222,6 @@ int main(int argc, char* argv[])
                 }
             }
         }
-        increment_clock(shared_clock);
     }
 
     while (activeChildren > 0)
