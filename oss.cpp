@@ -9,6 +9,14 @@
 #include <sys/shm.h>
 #include <signal.h>
 
+struct PCB
+{
+    int occupied; // either true or false
+    pid_t pid; // process id of this child
+    int startSeconds; // time when it was forked
+    int startNano; // time when it was forked
+};
+
 struct Clock
 {
     int seconds;
@@ -16,6 +24,9 @@ struct Clock
 };
 
 const int SH_KEY = 74821;
+const int MAX_PROCESSES = 18; //as specified in class no more than 18 at a time
+
+PCB pcb_table[MAX_PROCESSES];
 
 void signal_handler(int sig)
 {
@@ -49,10 +60,11 @@ int main(int argc, char* argv[])
     alarm(60);
 
     int opt;
-    int numChildren = 0;
-    int numSim = 0;
-    int timeLim = 0;
-    int interval = 0;
+    int numChildren = 1;
+    int numSim = 1;
+    int timeLimSec = 1;
+    int timeLimNano = 5000000;
+    int interval = 100;
 
     while((opt = getopt(argc, argv, ":hn:s:t:i:")) != -1) //set optional args
         {
@@ -65,7 +77,7 @@ int main(int argc, char* argv[])
                     std::cout << "-h: display help menu\n" ;
                     std::cout << "-n: set number of child processes\n" ;
                     std::cout << "-s: set number of simultaneous children\n" ;
-                    std::cout << "-t: set time limit for children\n" ;
+                    std::cout << "-t: set time limit for children in seconds\n" ;
                     std::cout << "-i: set interval in ms between launching children\n" ;
                     std::cout << "**********************\n" ;
                     std::cout << "Example invocation: \n" ;
@@ -81,7 +93,7 @@ int main(int argc, char* argv[])
                     numSim = atoi(optarg); //assign arg value to numSim
                     break;
                 case 't': //assign arg value to iter
-                    timeLim = atoi(optarg);
+                    timeLimSec = atoi(optarg);
                     break;
                 case 'i':
                     interval = atoi(optarg);
@@ -114,34 +126,88 @@ int main(int argc, char* argv[])
     shared_clock->nanoseconds = 0;
 
     int activeChildren = 0;
+    int launchedChildren = 0;
 
-    for (int i = 0; i < numChildren; i++)
+    while (launchedChildren < numChildren)
     {
-        if (activeChildren >= numSim)
+        increment_clock(shared_clock);
+        if (shared_clock -> nanoseconds % 500000 == 0)
         {
-            wait(nullptr);
-            activeChildren--;
+            //print_process_table(pcb_table, shared_clock); <- write function
         }
+        int status;
+        pid_t pid = waitpid(-1, &status, WNOHANG);
 
-        pid_t pid = fork();
+        if (pid > 0)
+        {
+            for (int i = 0; i < MAX_PROCESSES; i++)
+            {
+                if (pcb_table[i].pid == pid)
+                {
+                    //line for debugging
+                    std::cout << "Process " << pid << " has terminated." << std::endl;
+                    pcb_table[i].occupied = 0;
+                    activeChildren--;
+                    break;
+                }
+            }
+        }
+        if (activeChildren < numSim)
+        {
+            for (int i = 0; i < MAX_PROCESSES; i++)
+            {
+                if (!pcb_table[i].occupied)
+                {
+                    pid_t new_pid = fork();
 
-        if (pid < 0)
-        {
-           std::cerr << "Error: fork issue." << std::endl;
-           return 1;
-        }
-        else if (pid == 0)
-        {
-            execl("./worker", "worker", std::to_string(timeLim).c_str(), std::to_string(timeLim).c_str(), nullptr);
-            std::cerr << "Error: execl failed" << std::endl;
-            return 1;
-        }
-        else
-        {
-            //parent process
-            activeChildren++;
+                    if (new_pid < 0)
+                    {
+                        std::cerr << "Error: fork issue." << std::endl;
+                        return 1;
+                    }
+                    else if (new_pid ==0)
+                    {
+                        //child process
+                        execl("./worker", "worker", std::to_string(timeLimSec).c_str(), std::to_string(timeLimNano).c_str(), nullptr);
+                        std::cerr << "Error: execl failed" << std::endl;
+                        return 1;
+                    }
+                    else
+                    {
+                        //parent process
+                        pcb_table[i].occupied = 1;
+                        pcb_table[i].pid = new_pid;
+                        pcb_table[i].startSeconds = shared_clock -> seconds;
+                        pcb_table[i].startNano = shared_clock -> nanoseconds;
+                        activeChildren++;
+                        launchedChildren++;
+                        break;
+                    }
+                }
+            }
         }
         increment_clock(shared_clock);
+    }
+
+    while (activeChildren > 0)
+    {
+        int status;
+        pid_t pid = wait(&status);
+
+        if (pid > 0)
+        {
+            for (int i = 0; i < MAX_PROCESSES; i++)
+            {
+                if (pcb_table[i].pid == pid)
+                {
+                    //for debugging
+                    std::cout << "Process " << pid << " has terminated." << std::endl;
+                    pcb_table[i].occupied = 0; //entry is free
+                    activeChildren--;
+                    break;
+                }
+            }
+        }
     }
 
     shmdt(shared_clock);
