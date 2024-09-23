@@ -45,15 +45,19 @@ int main(int argc, char *argv[])
     std::cout << "TermTimeS: " << termSec << "TermTimeNano: " << termNsec << std::endl;
     std::cout << "\n Starting.......\n\n" << std::endl;
 
+    int lastSec = shared_clock -> seconds;
+
     while (shared_clock -> seconds < termSec ||
     shared_clock -> seconds == termSec && shared_clock -> nanoseconds < termNsec)
     {
 
-        //add loop here to check for reasonable
-        //print info again
-        std::cout << "Worker PID: " << getpid() << " PPID: " << getppid() << std::endl;
-        std::cout << "SysClockS: " << shared_clock -> seconds <<  "SysClockNano: " << shared_clock -> nanoseconds << std::endl;
-        std::cout << "TermTimeS: " << termSec << "TermTimeNano: " << termNsec << std::endl;
+        if (shared_clock -> seconds != lastSec)
+        {
+            //print info again
+            std::cout << "Worker PID: " << getpid() << " PPID: " << getppid() << std::endl;
+            std::cout << "SysClockS: " << shared_clock -> seconds <<  "SysClockNano: " << shared_clock -> nanoseconds << std::endl;
+            std::cout << "TermTimeS: " << termSec << "TermTimeNano: " << termNsec << std::endl;
+        }
     }
 
     std::cout << "Worker PID: " << getpid() << " PPID: " << getppid() << std::endl;

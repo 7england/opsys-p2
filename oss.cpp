@@ -188,10 +188,13 @@ int main(int argc, char* argv[])
                 }
             }
         }
+        //launch new children if under simultaneous limit
         if (activeChildren < numSim)
         {
+            //check to make sure it's not more than 18 at a time
             for (int i = 0; i < MAX_PROCESSES; i++)
             {
+                //make sure the pcb table isn't occupied
                 if (!pcb_table[i].occupied)
                 {
                     pid_t new_pid = fork();
@@ -221,6 +224,10 @@ int main(int argc, char* argv[])
                     }
                 }
             }
+        }
+        if(activeChildren >= numSim)
+        {
+            usleep(interval * 1000); //wait if all slots are full
         }
     }
 
