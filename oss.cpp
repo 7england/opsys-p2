@@ -9,6 +9,8 @@
 #include <sys/shm.h>
 #include <signal.h>
 #include <iomanip>
+#include <ctime>
+#include <cstdlib>
 
 struct PCB
 {
@@ -89,6 +91,10 @@ void print_process_table(PCB pcb_table[], Clock* shared_clock)
 
 int main(int argc, char* argv[])
 {
+    //use time to generate random number
+    //https://stackoverflow.com/questions/322938/recommended-way-to-initialize-srand
+    srand((time(nullptr)));
+
     //set up alarm
     signal(SIGALRM, signal_handler);
     alarm(60);
@@ -207,7 +213,10 @@ int main(int argc, char* argv[])
                     else if (new_pid == 0)
                     {
                         //child process
-                        execl("./worker", "worker", std::to_string(timeLimSec).c_str(), std::to_string(timeLimNano).c_str(), nullptr);
+                        int randomSec = rand() % timeLimSec + 1;
+                        int randomNano = rand() % timeLimNano;
+
+                        execl("./worker", "worker", std::to_string(randomSec).c_str(), std::to_string(randomNano).c_str(), nullptr);
                         std::cerr << "Error: execl failed" << std::endl;
                         return 1;
                     }
