@@ -40,30 +40,37 @@ int main(int argc, char *argv[])
     int termSec = shared_clock -> seconds + maxSec;
     int termNsec = shared_clock -> nanoseconds + maxNsec;
 
-    std::cout << "Worker PID: " << getpid() << " PPID: " << getppid() << std::endl;
-    std::cout << "SysClockS: " << shared_clock -> seconds <<  "SysClockNano: " << shared_clock -> nanoseconds << std::endl;
-    std::cout << "TermTimeS: " << termSec << "TermTimeNano: " << termNsec << std::endl;
+    if (termNsec >= 1000000000)
+    {
+        termSec += termNsec / 1000000000;
+        termNsec = termNsec % 1000000000;
+    }
+
+    std::cout << "TermTimeS: " << termSec << " TermTimeNano: " << termNsec << std::endl;
+
+    std::cout << "\n\nWorker PID: " << getpid() << " PPID: " << getppid() << std::endl;
+    std::cout << "SysClockS: " << shared_clock -> seconds <<  " SysClockNano: " << shared_clock -> nanoseconds << std::endl;
+    std::cout << "TermTimeS: " << termSec << " TermTimeNano: " << termNsec << std::endl;
     std::cout << "\n Starting.......\n\n" << std::endl;
 
     int lastSec = shared_clock -> seconds;
 
     while (shared_clock -> seconds < termSec ||
-    shared_clock -> seconds == termSec && shared_clock -> nanoseconds < termNsec)
+    (shared_clock -> seconds == termSec && shared_clock -> nanoseconds < termNsec))
     {
-
         if (shared_clock -> seconds != lastSec)
         {
             //print info again
+            lastSec = shared_clock -> seconds;
             std::cout << "Worker PID: " << getpid() << " PPID: " << getppid() << std::endl;
-            std::cout << "SysClockS: " << shared_clock -> seconds <<  "SysClockNano: " << shared_clock -> nanoseconds << std::endl;
-            std::cout << "TermTimeS: " << termSec << "TermTimeNano: " << termNsec << std::endl;
+            std::cout << "SysClockS: " << shared_clock -> seconds <<  " SysClockNano: " << shared_clock -> nanoseconds << std::endl;
+            std::cout << "TermTimeS: " << termSec << " TermTimeNano: " << termNsec << std::endl;
         }
     }
 
     std::cout << "Worker PID: " << getpid() << " PPID: " << getppid() << std::endl;
-    std::cout << "SysClockS: " << shared_clock -> seconds <<  "SysClockNano: " << shared_clock -> nanoseconds << std::endl;
-    std::cout << "TermTimeS: " << termSec << "TermTimeNano: " << termNsec << std::endl;
-    std::cout << "\n Terminating.......\n\n" << std::endl;
+    std::cout << "SysClockS: " << shared_clock -> seconds <<  " SysClockNano: " << shared_clock -> nanoseconds << std::endl;
+    std::cout << "TermTimeS: " << termSec << " TermTimeNano: " << termNsec << std::endl;
 
     if (shmdt(shared_clock) == -1)
     {
@@ -71,6 +78,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    return 0;
+    std::cout << "\n Terminating.......\n\n" << std::endl;
 
+    return 0;
 }

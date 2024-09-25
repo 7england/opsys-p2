@@ -27,7 +27,7 @@ struct Clock
 };
 
 const int SH_KEY = 74821;
-const int MAX_PROCESSES = 18; //as specified in class no more than 18 at a time
+const int MAX_PROCESSES = 20;
 
 PCB pcb_table[MAX_PROCESSES];
 
@@ -52,9 +52,9 @@ void signal_handler(int sig)
     exit(1);
 }
 
-void increment_clock(Clock *shared_clock)
+void increment_clock(Clock *shared_clock, int interval)
 {
-    shared_clock -> nanoseconds += 500000;
+    shared_clock -> nanoseconds += interval;
     //increment seconds if nanoseconds = second
     if (shared_clock -> nanoseconds >= 1000000000)
     {
@@ -91,20 +91,21 @@ void print_process_table(PCB pcb_table[], Clock* shared_clock)
 
 int main(int argc, char* argv[])
 {
-    //use time to generate random number
+    //use time and pid to generate random number
     //https://stackoverflow.com/questions/322938/recommended-way-to-initialize-srand
-    srand((time(nullptr)));
+    srand((time(nullptr) + getpid()));
 
     //set up alarm
     signal(SIGALRM, signal_handler);
     alarm(60);
 
+    //initialize variables for getopt
     int opt;
     int numChildren = 1;
     int numSim = 1;
     int timeLimSec = 1;
-    int timeLimNano = 5000000;
-    int interval = 100;
+    int timeLimNano = 999999999;
+    int interval = 50000000;
 
     while((opt = getopt(argc, argv, ":hn:s:t:i:")) != -1) //set optional args
         {
@@ -132,7 +133,7 @@ int main(int argc, char* argv[])
                 case 's':
                     numSim = atoi(optarg); //assign arg value to numSim
                     break;
-                case 't': //assign arg value to iter
+                case 't':
                     timeLimSec = atoi(optarg);
                     break;
                 case 'i':
@@ -162,42 +163,50 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    shared_clock->seconds = 0;
-    shared_clock->nanoseconds = 0;
+    //set clock nano/seconds to 0
+    shared_clock -> seconds = 0;
+    shared_clock -> nanoseconds = 0;
 
+    //for loops
     int activeChildren = 0;
     int launchedChildren = 0;
+    long lastPrintTime = 0;
 
-    while (launchedChildren < numChildren)
+    while (true)
     {
-        increment_clock(shared_clock);
-        if (shared_clock -> nanoseconds % 500000 == 0)
-        {
-            print_process_table(pcb_table, shared_clock);
-        }
+        increment_clock(shared_clock, interval);
+
+        //https://stackoverflow.com/questions/28045185/how-to-correctly-cast-time-t-to-long-int
+        long long currentTime = static_cast<long long>(shared_clock->seconds) * 1000000000 + shared_clock->nanoseconds;
 
         //check for terminated processes
         int status;
         pid_t pid = waitpid(-1, &status, WNOHANG);
 
+        //clear out unoccupied lines in pcb table
         if (pid > 0)
         {
             for (int i = 0; i < MAX_PROCESSES; i++)
             {
                 if (pcb_table[i].pid == pid)
                 {
-                    //line for debugging
-                    std::cout << "Process " << pid << " has terminated." << std::endl;
                     pcb_table[i].occupied = 0;
                     activeChildren--;
                     break;
                 }
             }
         }
-        //launch new children if under simultaneous limit
-        if (activeChildren < numSim)
+
+        if (currentTime - lastPrintTime >= 500000000)
         {
-            //check to make sure it's not more than 18 at a time
+            print_process_table(pcb_table, shared_clock);
+            lastPrintTime = currentTime;
+        }
+
+        //launch new children if under simultaneous limit
+        if (activeChildren < numSim && launchedChildren < numChildren)
+        {
+            //check to make sure it's not more than 20 at a time
             for (int i = 0; i < MAX_PROCESSES; i++)
             {
                 //make sure the pcb table isn't occupied
@@ -213,10 +222,15 @@ int main(int argc, char* argv[])
                     else if (new_pid == 0)
                     {
                         //child process
+
+                        //assign random value between 1 and input
                         int randomSec = rand() % timeLimSec + 1;
                         int randomNano = rand() % timeLimNano;
 
-                        execl("./worker", "worker", std::to_string(randomSec).c_str(), std::to_string(randomNano).c_str(), nullptr);
+                        std::string randomSecStr = std::to_string(randomSec);
+                        std::string randomNanoStr = std::to_string(randomNano);
+
+                        execl("./worker", "worker", randomSecStr.c_str(), randomNanoStr.c_str(), nullptr);
                         std::cerr << "Error: execl failed" << std::endl;
                         return 1;
                     }
@@ -229,15 +243,17 @@ int main(int argc, char* argv[])
                         pcb_table[i].startNano = shared_clock -> nanoseconds;
                         activeChildren++;
                         launchedChildren++;
+                        std::cout << "Launched: " << launchedChildren << ", Active: " << activeChildren << std::endl;
                         break;
                     }
                 }
             }
         }
-        if(activeChildren >= numSim)
+        if (launchedChildren >= numChildren && activeChildren == 0)
         {
-            usleep(interval * 1000); //wait if all slots are full
+            break;
         }
+
     }
 
     while (activeChildren > 0)
