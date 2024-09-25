@@ -52,9 +52,9 @@ void signal_handler(int sig)
     exit(1);
 }
 
-void increment_clock(Clock *shared_clock, int interval)
+void increment_clock(Clock *shared_clock)
 {
-    shared_clock -> nanoseconds += interval;
+    shared_clock -> nanoseconds += 250;
     //increment seconds if nanoseconds = second
     if (shared_clock -> nanoseconds >= 1000000000)
     {
@@ -65,11 +65,11 @@ void increment_clock(Clock *shared_clock, int interval)
 
 void print_process_table(PCB pcb_table[], Clock* shared_clock)
 {
-    std::cout << "OSS PID: " << getpid() << std::endl;
-    std::cout << "SysClockS: " << shared_clock -> seconds << std::endl;
-    std::cout << "SysCLockNano: " << shared_clock -> nanoseconds << std::endl;
-    std::cout << "Process Table:" << std::endl;
-    std::cout << "----------------------------------------" << std::endl;
+    std::cout << "OSS PID: " << getpid() <<
+    " SysClockS: " << shared_clock -> seconds <<
+    " SysCLockNano: " << shared_clock -> nanoseconds <<
+    "\nProcess Table:" <<
+    "\n--------------------------------------------------------" << std::endl;
     std::cout << std::setw(10) << "Entry" <<
     std::setw(10) << "Occupied" <<
     std::setw(10) << "PID" <<
@@ -86,7 +86,7 @@ void print_process_table(PCB pcb_table[], Clock* shared_clock)
         std::setw(10) << pcb_table[i].startNano <<
         std::endl;
     }
-    std::cout << "----------------------------------------" << std::endl;
+    std::cout << "--------------------------------------------------------" << std::endl;
 }
 
 int main(int argc, char* argv[])
@@ -105,7 +105,7 @@ int main(int argc, char* argv[])
     int numSim = 1;
     int timeLimSec = 1;
     int timeLimNano = 999999999;
-    int interval = 50000000;
+    int intervalMs = 100;
 
     while((opt = getopt(argc, argv, ":hn:s:t:i:")) != -1) //set optional args
         {
@@ -137,7 +137,7 @@ int main(int argc, char* argv[])
                     timeLimSec = atoi(optarg);
                     break;
                 case 'i':
-                    interval = atoi(optarg);
+                    intervalMs = atoi(optarg);
                     break;
                 default:
                     std::cerr << "Please choose an option!\n" ;
@@ -146,6 +146,20 @@ int main(int argc, char* argv[])
                     return 1;
             }
         }
+
+        if (numChildren <=0 || numSim <= 0 || timeLimSec <=0 || intervalMs <= 0)
+        {
+            std::cerr << "Please choose a valid number greater than 0." << std::endl;
+            return 1;
+        }
+        if (numChildren > 20 || numSim > 20 || timeLimSec >= 60 || intervalMs >= 60000)
+        {
+            std::cerr << "Please choose a reasonable number. Max time: 60." << std::endl;
+            return 1;
+        }
+
+    long long launchIntervalSeconds = intervalMs / 1000;
+    long long launchIntervalNs = (intervalMs / 1000) * 1000000;
 
     //create shared mem: 0644 r/w to owner
     int shmid = shmget(SH_KEY, sizeof(Clock), 0644 | IPC_CREAT);
@@ -172,11 +186,13 @@ int main(int argc, char* argv[])
     int launchedChildren = 0;
     long lastPrintTime = 0;
 
+    long long nextLaunchTimeNs = shared_clock -> nanoseconds + launchIntervalNs;
+	long long nextLaunchTimeSec = shared_clock -> seconds + launchIntervalSeconds;
+
     while (true)
     {
-        increment_clock(shared_clock, interval);
+        increment_clock(shared_clock);
 
-        //https://stackoverflow.com/questions/28045185/how-to-correctly-cast-time-t-to-long-int
         long long currentTime = static_cast<long long>(shared_clock->seconds) * 1000000000 + shared_clock->nanoseconds;
 
         //check for terminated processes
@@ -191,6 +207,9 @@ int main(int argc, char* argv[])
                 if (pcb_table[i].pid == pid)
                 {
                     pcb_table[i].occupied = 0;
+                    pcb_table[i].pid = 0;
+                    pcb_table[i].startSeconds = 0;
+                    pcb_table[i].startNano = 0;
                     activeChildren--;
                     break;
                 }
@@ -202,14 +221,16 @@ int main(int argc, char* argv[])
             print_process_table(pcb_table, shared_clock);
             lastPrintTime = currentTime;
         }
-
+        //launch new children under simultaneous limit
         //launch new children if under simultaneous limit
-        if (activeChildren < numSim && launchedChildren < numChildren)
+        if (activeChildren < numSim && launchedChildren < numChildren &&
+        (shared_clock->seconds > nextLaunchTimeSec ||
+        (shared_clock->seconds == nextLaunchTimeSec && shared_clock->nanoseconds >= nextLaunchTimeNs)))
         {
-            //check to make sure it's not more than 20 at a time
+            //check to make sure it's not more than 20 at a time, add to table
             for (int i = 0; i < MAX_PROCESSES; i++)
             {
-                //make sure the pcb table isn't occupied
+                //make sure the pcb table line isn't occupied
                 if (!pcb_table[i].occupied)
                 {
                     pid_t new_pid = fork();
@@ -243,37 +264,23 @@ int main(int argc, char* argv[])
                         pcb_table[i].startNano = shared_clock -> nanoseconds;
                         activeChildren++;
                         launchedChildren++;
-                        std::cout << "Launched: " << launchedChildren << ", Active: " << activeChildren << std::endl;
+
                         break;
                     }
                 }
+            }
+            //update next launch time
+            nextLaunchTimeSec = shared_clock->seconds + launchIntervalSeconds;
+            nextLaunchTimeNs = shared_clock->nanoseconds + launchIntervalNs;
+            if (nextLaunchTimeNs >= 1000000000)
+            {
+                nextLaunchTimeSec++;
+                nextLaunchTimeNs -= 1000000000;
             }
         }
         if (launchedChildren >= numChildren && activeChildren == 0)
         {
             break;
-        }
-
-    }
-
-    while (activeChildren > 0)
-    {
-        int status;
-        pid_t pid = wait(&status);
-
-        if (pid > 0)
-        {
-            for (int i = 0; i < MAX_PROCESSES; i++)
-            {
-                if (pcb_table[i].pid == pid)
-                {
-                    //for debugging
-                    std::cout << "Process " << pid << " has terminated." << std::endl;
-                    pcb_table[i].occupied = 0; //entry is free
-                    activeChildren--;
-                    break;
-                }
-            }
         }
     }
 
